@@ -1,0 +1,1177 @@
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 1
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+   1  Sets
+   2     y      "years"   / y10*y15 /
+   3     sea    "Seasons" / nime1, nime2 /
+   4     per    "Periods" / day, night /
+   5     sources "Sources" / electricity, gas /
+   6     tech   "Technologies" / PV, CHP, Boiler, ElecWaterHeater / ;
+   7   
+   8  Parameters
+   9      Days(sea)
+  10      ElecDemand0(sea, per)
+  11      HeatDemand0(sea, per)
+  12      CoolDemand0(sea, per)
+  13      ElecDemand(y,sea,per)
+  14      HeatDemand(y,sea,per)
+  15      SolarCF(sea, per);
+  16   
+  17  Days("nime1")  = 219 ;
+  18  Days("nime2")  = 146 ;
+  19   
+  20  ElecDemand0("nime1","day")   = 180 ;
+  21  ElecDemand0("nime1","night") = 120 ;
+  22  ElecDemand0("nime2","day")   = 180 ;
+  23  ElecDemand0("nime2","night") = 120 ;
+  24   
+  25  HeatDemand0("nime1","day")   = 20;
+  26  HeatDemand0("nime1","night") = 0;
+  27  HeatDemand0("nime2","day")   = 200;
+  28  HeatDemand0("nime2","night") = 140;
+  29   
+  30  CoolDemand0("nime1","day")   = 160;
+  31  CoolDemand0("nime1","night") = 60;
+  32  CoolDemand0("nime2","day")   = 0;
+  33  CoolDemand0("nime2","night") = 0;
+  34   
+  35  Scalar cop_cooling /3.0/;
+  36   
+  37  Loop(y,
+  38     ElecDemand(y,sea,per) = (ElecDemand0(sea,per) + (CoolDemand0(sea,per)/cop_cooling)) * (1.01)**(ord(y)-1);
+  39     HeatDemand(y,sea,per) = HeatDemand0(sea,per) * (1.01)**(ord(y)-1);
+  40  );
+  41   
+  42  SolarCF("nime1","day")   = 0.26;
+  43  SolarCF("nime1","night") = 0;
+  44  SolarCF("nime2","day")   = 0.12;
+  45  SolarCF("nime2","night") = 0;
+  46   
+  47  Parameters
+  48  InvestCost(tech)
+  49  OandM(tech)
+  50  Lifetime(tech)
+  51  Efficiency(tech)
+  52  AF(tech)
+  53  MaxCap(tech)
+  54  MinCap(tech);
+  55   
+  56  InvestCost("PV") = 1000;
+  57  OandM("PV") = 15;
+  58   Lifetime("PV") = 25;
+  59   AF("PV") = 0.95;
+  60   MaxCap("PV") = 100;
+  61   
+  62  InvestCost("CHP") = 1500;
+  63   OandM("CHP") = 150;
+  64   Lifetime("CHP") = 20;
+  65   AF("CHP") = 0.8;
+  66   MaxCap("CHP") = 700;
+  67   
+  68  InvestCost("Boiler") = 300;
+  69   OandM("Boiler") = 10;
+  70   Lifetime("Boiler") = 20;
+  71   Efficiency("Boiler") = 0.9;
+  72   AF("Boiler") = 0.95;
+  73   MaxCap("Boiler") = 300;
+  74   
+  75  InvestCost("ElecWaterHeater") = 120;
+  76   OandM("ElecWaterHeater") = 5;
+  77   Lifetime("ElecWaterHeater") = 12;
+  78   Efficiency("ElecWaterHeater") = 0.97;
+  79   AF("ElecWaterHeater") = 0.95;
+  80   MaxCap("ElecWaterHeater") = 3000;
+  81   
+  82  Scalar r /0.07/ ;
+  83  Parameter CRF(tech);
+  84  CRF(tech) = r*(1+r)**Lifetime(tech) / ((1+r)**Lifetime(tech)-1);
+  85   
+  86  Parameter SubVarCost(sources), InvestCostso(sources);
+  87  SubVarCost("electricity") = 0.09 ;
+  88  SubVarCost("gas")         = 0.03;
+  89  InvestCostso("electricity") = 2000;
+  90  InvestCostso("gas") = 3000;
+  91   
+  92   
+  93  Positive Variables
+  94  Cap(tech)
+  95  PVgen(sea,per,y)
+  96  CHPelec(sea,per,y)
+  97  CHPheat(sea,per,y)
+  98  BoilerHeat(sea,per,y)
+  99  ElecWH_Heat(sea,per,y)
+ 100  GridElecBuy(sea,per,y)
+ 101  GridGasBuy(sea,per,y);
+ 102   
+ 103  Variable z;
+ 104   
+ 105  Equations
+ 106  ElecBalance(sea,per,y)
+ 107  HeatBalance(sea,per,y)
+ 108  PV_limit(sea,per,y)
+ 109  CHP_MinElec(sea,per,y)
+ 110  CHP_MaxElec(sea,per,y)
+ 111  CHP_UpperHeat(sea,per,y)
+ 112  CHP_LowerHeat(sea,per,y)
+ 113  Boiler_limit(sea,per,y)
+ 114  ElecWH_limit(sea,per,y)
+ 115  Gas_balance(sea,per,y)
+ 116  M;
+ 117   
+ 118  ElecBalance(sea,per,y)..
+ 119      PVgen(sea,per,y) + CHPelec(sea,per,y) + GridElecBuy(sea,per,y) =e= ElecDemand(y,sea,per) + ElecWH_Heat(sea,per,y)/Efficiency("ElecWaterHeater");
+ 120   
+ 121  HeatBalance(sea,per,y)..
+ 122      CHPheat(sea,per,y) + BoilerHeat(sea,per,y) + ElecWH_Heat(sea,per,y) =e= HeatDemand(y,sea,per);
+ 123   
+ 124  PV_limit(sea,per,y)..
+ 125      PVgen(sea,per,y) =l= Cap("PV")*SolarCF(sea,per)*AF("PV");
+ 126   
+ 127  CHP_MinElec(sea,per,y)..
+ 128      CHPelec(sea,per,y) =g= (100/700) * Cap("CHP");
+ 129   
+ 130  CHP_MaxElec(sea,per,y)..
+ 131      CHPelec(sea,per,y) =l= Cap("CHP") * AF("CHP");
+ 132   
+ 133  CHP_UpperHeat(sea,per,y)..
+ 134      CHPheat(sea,per,y) =l= 1.3 * CHPelec(sea,per,y);
+ 135   
+ 136  CHP_LowerHeat(sea,per,y)..
+ 137      CHPheat(sea,per,y) =g= 0.4 * CHPelec(sea,per,y) - 0.2 * Cap("CHP");
+ 138   
+ 139  Boiler_limit(sea,per,y)..
+ 140      BoilerHeat(sea,per,y) =l= Cap("Boiler")*AF("Boiler");
+ 141   
+ 142  ElecWH_limit(sea,per,y)..
+ 143      ElecWH_Heat(sea,per,y) =l= Cap("ElecWaterHeater")*AF("ElecWaterHeater");
+ 144   
+ 145  Gas_balance(sea,per,y)..
+ 146      GridGasBuy(sea,per,y) =e= BoilerHeat(sea,per,y)/Efficiency("Boiler") + CHPelec(sea,per,y)/0.35;
+ 147   
+ 148  M..
+ 149      z =e= sum(y, sum((sea,per), (GridElecBuy(sea,per,y)*SubVarCost("electricity") + GridGasBuy(sea,per,y)*SubVarCost("gas")) * Days(sea) * 12))
+ 150          + InvestCostso("electricity") + InvestCostso("gas")
+ 151          + sum(tech, Cap(tech)*(InvestCost(tech)*CRF(tech)+OandM(tech)));
+ 152   
+ 153  Cap.up(tech) = MaxCap(tech);
+ 154  Cap.lo("CHP") = 100;
+ 155   
+ 156  Model osemosys /all/;
+ 157  Solve osemosys minimizing z using LP;
+ 158   
+ 159  Display z.l, Cap.l;
+ 160   
+
+
+COMPILATION TIME     =        0.000 SECONDS      3 MB  25.1.3 r4e34d435fbd WEX-WEI
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 2
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Equation Listing    SOLVE osemosys Using LP From line 157
+
+
+---- ElecBalance  =E=  
+
+ElecBalance(nime1,day,y10)..  PVgen(nime1,day,y10) + CHPelec(nime1,day,y10) - 1.03092783505155*ElecWH_Heat(nime1,day,y10) + GridElecBuy(nime1,day,y10) =E= 233.333333333333 ; (LHS = 0, INFES = 233.333333333333 ****)
+     
+ElecBalance(nime1,day,y11)..  PVgen(nime1,day,y11) + CHPelec(nime1,day,y11) - 1.03092783505155*ElecWH_Heat(nime1,day,y11) + GridElecBuy(nime1,day,y11) =E= 235.666666666667 ; (LHS = 0, INFES = 235.666666666667 ****)
+     
+ElecBalance(nime1,day,y12)..  PVgen(nime1,day,y12) + CHPelec(nime1,day,y12) - 1.03092783505155*ElecWH_Heat(nime1,day,y12) + GridElecBuy(nime1,day,y12) =E= 238.023333333333 ; (LHS = 0, INFES = 238.023333333333 ****)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- HeatBalance  =E=  
+
+HeatBalance(nime1,day,y10)..  CHPheat(nime1,day,y10) + BoilerHeat(nime1,day,y10) + ElecWH_Heat(nime1,day,y10) =E= 20 ; (LHS = 0, INFES = 20 ****)
+     
+HeatBalance(nime1,day,y11)..  CHPheat(nime1,day,y11) + BoilerHeat(nime1,day,y11) + ElecWH_Heat(nime1,day,y11) =E= 20.2 ; (LHS = 0, INFES = 20.2 ****)
+     
+HeatBalance(nime1,day,y12)..  CHPheat(nime1,day,y12) + BoilerHeat(nime1,day,y12) + ElecWH_Heat(nime1,day,y12) =E= 20.402 ; (LHS = 0, INFES = 20.402 ****)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- PV_limit  =L=  
+
+PV_limit(nime1,day,y10)..  - 0.247*Cap(PV) + PVgen(nime1,day,y10) =L= 0 ; (LHS = 0)
+     
+PV_limit(nime1,day,y11)..  - 0.247*Cap(PV) + PVgen(nime1,day,y11) =L= 0 ; (LHS = 0)
+     
+PV_limit(nime1,day,y12)..  - 0.247*Cap(PV) + PVgen(nime1,day,y12) =L= 0 ; (LHS = 0)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- CHP_MinElec  =G=  
+
+CHP_MinElec(nime1,day,y10)..  - 0.142857142857143*Cap(CHP) + CHPelec(nime1,day,y10) =G= 0 ; (LHS = -14.2857142857143, INFES = 14.2857142857143 ****)
+     
+CHP_MinElec(nime1,day,y11)..  - 0.142857142857143*Cap(CHP) + CHPelec(nime1,day,y11) =G= 0 ; (LHS = -14.2857142857143, INFES = 14.2857142857143 ****)
+     
+CHP_MinElec(nime1,day,y12)..  - 0.142857142857143*Cap(CHP) + CHPelec(nime1,day,y12) =G= 0 ; (LHS = -14.2857142857143, INFES = 14.2857142857143 ****)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- CHP_MaxElec  =L=  
+
+CHP_MaxElec(nime1,day,y10)..  - 0.8*Cap(CHP) + CHPelec(nime1,day,y10) =L= 0 ; (LHS = -80)
+     
+CHP_MaxElec(nime1,day,y11)..  - 0.8*Cap(CHP) + CHPelec(nime1,day,y11) =L= 0 ; (LHS = -80)
+     
+CHP_MaxElec(nime1,day,y12)..  - 0.8*Cap(CHP) + CHPelec(nime1,day,y12) =L= 0 ; (LHS = -80)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- CHP_UpperHeat  =L=  
+
+CHP_UpperHeat(nime1,day,y10)..  - 1.3*CHPelec(nime1,day,y10) + CHPheat(nime1,day,y10) =L= 0 ; (LHS = 0)
+     
+CHP_UpperHeat(nime1,day,y11)..  - 1.3*CHPelec(nime1,day,y11) + CHPheat(nime1,day,y11) =L= 0 ; (LHS = 0)
+     
+CHP_UpperHeat(nime1,day,y12)..  - 1.3*CHPelec(nime1,day,y12) + CHPheat(nime1,day,y12) =L= 0 ; (LHS = 0)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- CHP_LowerHeat  =G=  
+
+CHP_LowerHeat(nime1,day,y10)..  0.2*Cap(CHP) - 0.4*CHPelec(nime1,day,y10) + CHPheat(nime1,day,y10) =G= 0 ; (LHS = 20)
+     
+CHP_LowerHeat(nime1,day,y11)..  0.2*Cap(CHP) - 0.4*CHPelec(nime1,day,y11) + CHPheat(nime1,day,y11) =G= 0 ; (LHS = 20)
+     
+CHP_LowerHeat(nime1,day,y12)..  0.2*Cap(CHP) - 0.4*CHPelec(nime1,day,y12) + CHPheat(nime1,day,y12) =G= 0 ; (LHS = 20)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- Boiler_limit  =L=  
+
+Boiler_limit(nime1,day,y10)..  - 0.95*Cap(Boiler) + BoilerHeat(nime1,day,y10) =L= 0 ; (LHS = 0)
+     
+Boiler_limit(nime1,day,y11)..  - 0.95*Cap(Boiler) + BoilerHeat(nime1,day,y11) =L= 0 ; (LHS = 0)
+     
+Boiler_limit(nime1,day,y12)..  - 0.95*Cap(Boiler) + BoilerHeat(nime1,day,y12) =L= 0 ; (LHS = 0)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- ElecWH_limit  =L=  
+
+ElecWH_limit(nime1,day,y10)..  - 0.95*Cap(ElecWaterHeater) + ElecWH_Heat(nime1,day,y10) =L= 0 ; (LHS = 0)
+     
+ElecWH_limit(nime1,day,y11)..  - 0.95*Cap(ElecWaterHeater) + ElecWH_Heat(nime1,day,y11) =L= 0 ; (LHS = 0)
+     
+ElecWH_limit(nime1,day,y12)..  - 0.95*Cap(ElecWaterHeater) + ElecWH_Heat(nime1,day,y12) =L= 0 ; (LHS = 0)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- Gas_balance  =E=  
+
+Gas_balance(nime1,day,y10)..  - 2.85714285714286*CHPelec(nime1,day,y10) - 1.11111111111111*BoilerHeat(nime1,day,y10) + GridGasBuy(nime1,day,y10) =E= 0 ; (LHS = 0)
+     
+Gas_balance(nime1,day,y11)..  - 2.85714285714286*CHPelec(nime1,day,y11) - 1.11111111111111*BoilerHeat(nime1,day,y11) + GridGasBuy(nime1,day,y11) =E= 0 ; (LHS = 0)
+     
+Gas_balance(nime1,day,y12)..  - 2.85714285714286*CHPelec(nime1,day,y12) - 1.11111111111111*BoilerHeat(nime1,day,y12) + GridGasBuy(nime1,day,y12) =E= 0 ; (LHS = 0)
+     
+REMAINING 21 ENTRIES SKIPPED
+
+
+---- M  =E=  
+
+M..  - 100.810517220666*Cap(PV) - 291.589388614883*Cap(CHP) - 38.3178777229767*Cap(Boiler) - 20.1082386386025*Cap(ElecWaterHeater) - 236.52*GridElecBuy(nime1,day,y10) - 236.52*GridElecBuy(nime1,day,y11) - 236.52*GridElecBuy(nime1,day,y12)
+     
+      - 236.52*GridElecBuy(nime1,day,y13) - 236.52*GridElecBuy(nime1,day,y14) - 236.52*GridElecBuy(nime1,day,y15) - 236.52*GridElecBuy(nime1,night,y10) - 236.52*GridElecBuy(nime1,night,y11) - 236.52*GridElecBuy(nime1,night,y12)
+     
+      - 236.52*GridElecBuy(nime1,night,y13) - 236.52*GridElecBuy(nime1,night,y14) - 236.52*GridElecBuy(nime1,night,y15) - 157.68*GridElecBuy(nime2,day,y10) - 157.68*GridElecBuy(nime2,day,y11) - 157.68*GridElecBuy(nime2,day,y12)
+     
+      - 157.68*GridElecBuy(nime2,day,y13) - 157.68*GridElecBuy(nime2,day,y14) - 157.68*GridElecBuy(nime2,day,y15) - 157.68*GridElecBuy(nime2,night,y10) - 157.68*GridElecBuy(nime2,night,y11) - 157.68*GridElecBuy(nime2,night,y12)
+     
+      - 157.68*GridElecBuy(nime2,night,y13) - 157.68*GridElecBuy(nime2,night,y14) - 157.68*GridElecBuy(nime2,night,y15) - 78.84*GridGasBuy(nime1,day,y10) - 78.84*GridGasBuy(nime1,day,y11) - 78.84*GridGasBuy(nime1,day,y12) - 78.84*GridGasBuy(nime1,day,y13)
+     
+      - 78.84*GridGasBuy(nime1,day,y14) - 78.84*GridGasBuy(nime1,day,y15) - 78.84*GridGasBuy(nime1,night,y10) - 78.84*GridGasBuy(nime1,night,y11) - 78.84*GridGasBuy(nime1,night,y12) - 78.84*GridGasBuy(nime1,night,y13) - 78.84*GridGasBuy(nime1,night,y14)
+     
+      - 78.84*GridGasBuy(nime1,night,y15) - 52.56*GridGasBuy(nime2,day,y10) - 52.56*GridGasBuy(nime2,day,y11) - 52.56*GridGasBuy(nime2,day,y12) - 52.56*GridGasBuy(nime2,day,y13) - 52.56*GridGasBuy(nime2,day,y14) - 52.56*GridGasBuy(nime2,day,y15)
+     
+      - 52.56*GridGasBuy(nime2,night,y10) - 52.56*GridGasBuy(nime2,night,y11) - 52.56*GridGasBuy(nime2,night,y12) - 52.56*GridGasBuy(nime2,night,y13) - 52.56*GridGasBuy(nime2,night,y14) - 52.56*GridGasBuy(nime2,night,y15) + z =E= 5000 ;
+     
+      (LHS = -29158.9388614884, INFES = 34158.9388614884 ****)
+     
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 3
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE osemosys Using LP From line 157
+
+
+---- Cap  
+
+Cap(PV)
+                (.LO, .L, .UP, .M = 0, 0, 100, 0)
+       -0.247   PV_limit(nime1,day,y10)
+       -0.247   PV_limit(nime1,day,y11)
+       -0.247   PV_limit(nime1,day,y12)
+       -0.247   PV_limit(nime1,day,y13)
+       -0.247   PV_limit(nime1,day,y14)
+       -0.247   PV_limit(nime1,day,y15)
+       -0.114   PV_limit(nime2,day,y10)
+       -0.114   PV_limit(nime2,day,y11)
+       -0.114   PV_limit(nime2,day,y12)
+       -0.114   PV_limit(nime2,day,y13)
+       -0.114   PV_limit(nime2,day,y14)
+       -0.114   PV_limit(nime2,day,y15)
+     -100.8105  M
+
+Cap(CHP)
+                (.LO, .L, .UP, .M = 100, 100, 700, 0)
+       -0.1429  CHP_MinElec(nime1,day,y10)
+       -0.1429  CHP_MinElec(nime1,day,y11)
+       -0.1429  CHP_MinElec(nime1,day,y12)
+       -0.1429  CHP_MinElec(nime1,day,y13)
+       -0.1429  CHP_MinElec(nime1,day,y14)
+       -0.1429  CHP_MinElec(nime1,day,y15)
+       -0.1429  CHP_MinElec(nime1,night,y10)
+       -0.1429  CHP_MinElec(nime1,night,y11)
+       -0.1429  CHP_MinElec(nime1,night,y12)
+       -0.1429  CHP_MinElec(nime1,night,y13)
+       -0.1429  CHP_MinElec(nime1,night,y14)
+       -0.1429  CHP_MinElec(nime1,night,y15)
+       -0.1429  CHP_MinElec(nime2,day,y10)
+       -0.1429  CHP_MinElec(nime2,day,y11)
+       -0.1429  CHP_MinElec(nime2,day,y12)
+       -0.1429  CHP_MinElec(nime2,day,y13)
+       -0.1429  CHP_MinElec(nime2,day,y14)
+       -0.1429  CHP_MinElec(nime2,day,y15)
+       -0.1429  CHP_MinElec(nime2,night,y10)
+       -0.1429  CHP_MinElec(nime2,night,y11)
+       -0.1429  CHP_MinElec(nime2,night,y12)
+       -0.1429  CHP_MinElec(nime2,night,y13)
+       -0.1429  CHP_MinElec(nime2,night,y14)
+       -0.1429  CHP_MinElec(nime2,night,y15)
+       -0.8     CHP_MaxElec(nime1,day,y10)
+       -0.8     CHP_MaxElec(nime1,day,y11)
+       -0.8     CHP_MaxElec(nime1,day,y12)
+       -0.8     CHP_MaxElec(nime1,day,y13)
+       -0.8     CHP_MaxElec(nime1,day,y14)
+       -0.8     CHP_MaxElec(nime1,day,y15)
+       -0.8     CHP_MaxElec(nime1,night,y10)
+       -0.8     CHP_MaxElec(nime1,night,y11)
+       -0.8     CHP_MaxElec(nime1,night,y12)
+       -0.8     CHP_MaxElec(nime1,night,y13)
+       -0.8     CHP_MaxElec(nime1,night,y14)
+       -0.8     CHP_MaxElec(nime1,night,y15)
+       -0.8     CHP_MaxElec(nime2,day,y10)
+       -0.8     CHP_MaxElec(nime2,day,y11)
+       -0.8     CHP_MaxElec(nime2,day,y12)
+       -0.8     CHP_MaxElec(nime2,day,y13)
+       -0.8     CHP_MaxElec(nime2,day,y14)
+       -0.8     CHP_MaxElec(nime2,day,y15)
+       -0.8     CHP_MaxElec(nime2,night,y10)
+       -0.8     CHP_MaxElec(nime2,night,y11)
+       -0.8     CHP_MaxElec(nime2,night,y12)
+       -0.8     CHP_MaxElec(nime2,night,y13)
+       -0.8     CHP_MaxElec(nime2,night,y14)
+       -0.8     CHP_MaxElec(nime2,night,y15)
+        0.2     CHP_LowerHeat(nime1,day,y10)
+        0.2     CHP_LowerHeat(nime1,day,y11)
+        0.2     CHP_LowerHeat(nime1,day,y12)
+        0.2     CHP_LowerHeat(nime1,day,y13)
+        0.2     CHP_LowerHeat(nime1,day,y14)
+        0.2     CHP_LowerHeat(nime1,day,y15)
+        0.2     CHP_LowerHeat(nime1,night,y10)
+        0.2     CHP_LowerHeat(nime1,night,y11)
+        0.2     CHP_LowerHeat(nime1,night,y12)
+        0.2     CHP_LowerHeat(nime1,night,y13)
+        0.2     CHP_LowerHeat(nime1,night,y14)
+        0.2     CHP_LowerHeat(nime1,night,y15)
+        0.2     CHP_LowerHeat(nime2,day,y10)
+        0.2     CHP_LowerHeat(nime2,day,y11)
+        0.2     CHP_LowerHeat(nime2,day,y12)
+        0.2     CHP_LowerHeat(nime2,day,y13)
+        0.2     CHP_LowerHeat(nime2,day,y14)
+        0.2     CHP_LowerHeat(nime2,day,y15)
+        0.2     CHP_LowerHeat(nime2,night,y10)
+        0.2     CHP_LowerHeat(nime2,night,y11)
+        0.2     CHP_LowerHeat(nime2,night,y12)
+        0.2     CHP_LowerHeat(nime2,night,y13)
+        0.2     CHP_LowerHeat(nime2,night,y14)
+        0.2     CHP_LowerHeat(nime2,night,y15)
+     -291.5894  M
+        0       (OLD LEVEL ****)
+
+Cap(Boiler)
+                (.LO, .L, .UP, .M = 0, 0, 300, 0)
+       -0.95    Boiler_limit(nime1,day,y10)
+       -0.95    Boiler_limit(nime1,day,y11)
+       -0.95    Boiler_limit(nime1,day,y12)
+       -0.95    Boiler_limit(nime1,day,y13)
+       -0.95    Boiler_limit(nime1,day,y14)
+       -0.95    Boiler_limit(nime1,day,y15)
+       -0.95    Boiler_limit(nime1,night,y10)
+       -0.95    Boiler_limit(nime1,night,y11)
+       -0.95    Boiler_limit(nime1,night,y12)
+       -0.95    Boiler_limit(nime1,night,y13)
+       -0.95    Boiler_limit(nime1,night,y14)
+       -0.95    Boiler_limit(nime1,night,y15)
+       -0.95    Boiler_limit(nime2,day,y10)
+       -0.95    Boiler_limit(nime2,day,y11)
+       -0.95    Boiler_limit(nime2,day,y12)
+       -0.95    Boiler_limit(nime2,day,y13)
+       -0.95    Boiler_limit(nime2,day,y14)
+       -0.95    Boiler_limit(nime2,day,y15)
+       -0.95    Boiler_limit(nime2,night,y10)
+       -0.95    Boiler_limit(nime2,night,y11)
+       -0.95    Boiler_limit(nime2,night,y12)
+       -0.95    Boiler_limit(nime2,night,y13)
+       -0.95    Boiler_limit(nime2,night,y14)
+       -0.95    Boiler_limit(nime2,night,y15)
+      -38.3179  M
+
+REMAINING ENTRY SKIPPED
+
+---- PVgen  
+
+PVgen(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y10)
+        1       PV_limit(nime1,day,y10)
+
+PVgen(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y11)
+        1       PV_limit(nime1,day,y11)
+
+PVgen(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y12)
+        1       PV_limit(nime1,day,y12)
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- CHPelec  
+
+CHPelec(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y10)
+        1       CHP_MinElec(nime1,day,y10)
+        1       CHP_MaxElec(nime1,day,y10)
+       -1.3     CHP_UpperHeat(nime1,day,y10)
+       -0.4     CHP_LowerHeat(nime1,day,y10)
+       -2.8571  Gas_balance(nime1,day,y10)
+
+CHPelec(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y11)
+        1       CHP_MinElec(nime1,day,y11)
+        1       CHP_MaxElec(nime1,day,y11)
+       -1.3     CHP_UpperHeat(nime1,day,y11)
+       -0.4     CHP_LowerHeat(nime1,day,y11)
+       -2.8571  Gas_balance(nime1,day,y11)
+
+CHPelec(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y12)
+        1       CHP_MinElec(nime1,day,y12)
+        1       CHP_MaxElec(nime1,day,y12)
+       -1.3     CHP_UpperHeat(nime1,day,y12)
+       -0.4     CHP_LowerHeat(nime1,day,y12)
+       -2.8571  Gas_balance(nime1,day,y12)
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- CHPheat  
+
+CHPheat(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y10)
+        1       CHP_UpperHeat(nime1,day,y10)
+        1       CHP_LowerHeat(nime1,day,y10)
+
+CHPheat(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y11)
+        1       CHP_UpperHeat(nime1,day,y11)
+        1       CHP_LowerHeat(nime1,day,y11)
+
+CHPheat(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y12)
+        1       CHP_UpperHeat(nime1,day,y12)
+        1       CHP_LowerHeat(nime1,day,y12)
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- BoilerHeat  
+
+BoilerHeat(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y10)
+        1       Boiler_limit(nime1,day,y10)
+       -1.1111  Gas_balance(nime1,day,y10)
+
+BoilerHeat(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y11)
+        1       Boiler_limit(nime1,day,y11)
+       -1.1111  Gas_balance(nime1,day,y11)
+
+BoilerHeat(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       HeatBalance(nime1,day,y12)
+        1       Boiler_limit(nime1,day,y12)
+       -1.1111  Gas_balance(nime1,day,y12)
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- ElecWH_Heat  
+
+ElecWH_Heat(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1.0309  ElecBalance(nime1,day,y10)
+        1       HeatBalance(nime1,day,y10)
+        1       ElecWH_limit(nime1,day,y10)
+
+ElecWH_Heat(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1.0309  ElecBalance(nime1,day,y11)
+        1       HeatBalance(nime1,day,y11)
+        1       ElecWH_limit(nime1,day,y11)
+
+ElecWH_Heat(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1.0309  ElecBalance(nime1,day,y12)
+        1       HeatBalance(nime1,day,y12)
+        1       ElecWH_limit(nime1,day,y12)
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- GridElecBuy  
+
+GridElecBuy(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y10)
+     -236.52    M
+
+GridElecBuy(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y11)
+     -236.52    M
+
+GridElecBuy(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       ElecBalance(nime1,day,y12)
+     -236.52    M
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- GridGasBuy  
+
+GridGasBuy(nime1,day,y10)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       Gas_balance(nime1,day,y10)
+      -78.84    M
+
+GridGasBuy(nime1,day,y11)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       Gas_balance(nime1,day,y11)
+      -78.84    M
+
+GridGasBuy(nime1,day,y12)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+        1       Gas_balance(nime1,day,y12)
+      -78.84    M
+
+REMAINING 21 ENTRIES SKIPPED
+
+---- z  
+
+z
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+        1       M
+
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 4
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Model Statistics    SOLVE osemosys Using LP From line 157
+
+
+MODEL STATISTICS
+
+BLOCKS OF EQUATIONS          11     SINGLE EQUATIONS          241
+BLOCKS OF VARIABLES           9     SINGLE VARIABLES          173  1 projected
+NON ZERO ELEMENTS           641
+
+
+GENERATION TIME      =        0.000 SECONDS      4 MB  25.1.3 r4e34d435fbd WEX-WEI
+
+
+EXECUTION TIME       =        0.000 SECONDS      4 MB  25.1.3 r4e34d435fbd WEX-WEI
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 5
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE osemosys Using LP From line 157
+
+
+               S O L V E      S U M M A R Y
+
+     MODEL   osemosys            OBJECTIVE  z
+     TYPE    LP                  DIRECTION  MINIMIZE
+     SOLVER  CPLEX               FROM LINE  157
+
+**** SOLVER STATUS     1 Normal Completion         
+**** MODEL STATUS      1 Optimal                   
+**** OBJECTIVE VALUE           832251.5403
+
+ RESOURCE USAGE, LIMIT          0.016      1000.000
+ ITERATION COUNT, LIMIT        78    2000000000
+
+IBM ILOG CPLEX   25.1.3 r4e34d435fbd Released Oct 30, 2018 WEI x86 64bit/MS Wi
+Cplex 12.8.0.0
+
+Space for names approximately 0.01 Mb
+Use option 'names no' to turn use of names off
+LP status(1): optimal
+Cplex Time: 0.00sec (det. 0.55 ticks)
+Optimal solution found.
+Objective :      832251.540336
+
+
+---- EQU ElecBalance  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10       233.3333       233.3333       233.3333       236.5200      
+nime1.day  .y11       235.6667       235.6667       235.6667       236.5200      
+nime1.day  .y12       238.0233       238.0233       238.0233       236.5200      
+nime1.day  .y13       240.4036       240.4036       240.4036       236.5200      
+nime1.day  .y14       242.8076       242.8076       242.8076       236.5200      
+nime1.day  .y15       245.2357       245.2357       245.2357       236.5200      
+nime1.night.y10       140.0000       140.0000       140.0000       236.5200      
+nime1.night.y11       141.4000       141.4000       141.4000       236.5200      
+nime1.night.y12       142.8140       142.8140       142.8140       236.5200      
+nime1.night.y13       144.2421       144.2421       144.2421       236.5200      
+nime1.night.y14       145.6846       145.6846       145.6846       236.5200      
+nime1.night.y15       147.1414       147.1414       147.1414       236.5200      
+nime2.day  .y10       180.0000       180.0000       180.0000       157.6800      
+nime2.day  .y11       181.8000       181.8000       181.8000       157.6800      
+nime2.day  .y12       183.6180       183.6180       183.6180       157.6800      
+nime2.day  .y13       185.4542       185.4542       185.4542       157.6800      
+nime2.day  .y14       187.3087       187.3087       187.3087       157.6800      
+nime2.day  .y15       189.1818       189.1818       189.1818       157.6800      
+nime2.night.y10       120.0000       120.0000       120.0000       150.1714      
+nime2.night.y11       121.2000       121.2000       121.2000       150.1714      
+nime2.night.y12       122.4120       122.4120       122.4120       150.1714      
+nime2.night.y13       123.6361       123.6361       123.6361       150.1714      
+nime2.night.y14       124.8725       124.8725       124.8725       150.1714      
+nime2.night.y15       126.1212       126.1212       126.1212       150.1714      
+
+---- EQU HeatBalance  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        20.0000        20.0000        20.0000       -28.1571      
+nime1.day  .y11        20.2000        20.2000        20.2000       -28.1571      
+nime1.day  .y12        20.4020        20.4020        20.4020       -28.1571      
+nime1.day  .y13        20.6060        20.6060        20.6060       -28.1571      
+nime1.day  .y14        20.8121        20.8121        20.8121       -28.1571      
+nime1.day  .y15        21.0202        21.0202        21.0202       -28.1571      
+nime1.night.y10          .              .              .           -28.1571      
+nime1.night.y11          .              .              .           -28.1571      
+nime1.night.y12          .              .              .           -28.1571      
+nime1.night.y13          .              .              .           -28.1571      
+nime1.night.y14          .              .              .           -28.1571      
+nime1.night.y15          .              .              .           -28.1571      
+nime2.day  .y10       200.0000       200.0000       200.0000         EPS         
+nime2.day  .y11       202.0000       202.0000       202.0000         EPS         
+nime2.day  .y12       204.0200       204.0200       204.0200         EPS         
+nime2.day  .y13       206.0602       206.0602       206.0602        23.6068      
+nime2.day  .y14       208.1208       208.1208       208.1208        58.4000      
+nime2.day  .y15       210.2020       210.2020       210.2020        98.7346      
+nime2.night.y10       140.0000       140.0000       140.0000         EPS         
+nime2.night.y11       141.4000       141.4000       141.4000         EPS         
+nime2.night.y12       142.8140       142.8140       142.8140         EPS         
+nime2.night.y13       144.2421       144.2421       144.2421         EPS         
+nime2.night.y14       145.6846       145.6846       145.6846         EPS         
+nime2.night.y15       147.1414       147.1414       147.1414         EPS         
+
+---- EQU PV_limit  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        -INF             .              .          -236.5200      
+nime1.day  .y11        -INF             .              .          -236.5200      
+nime1.day  .y12        -INF             .              .          -236.5200      
+nime1.day  .y13        -INF             .              .          -236.5200      
+nime1.day  .y14        -INF             .              .          -236.5200      
+nime1.day  .y15        -INF             .              .          -236.5200      
+nime1.night.y10        -INF             .              .          -236.5200      
+nime1.night.y11        -INF             .              .          -236.5200      
+nime1.night.y12        -INF             .              .          -236.5200      
+nime1.night.y13        -INF             .              .          -236.5200      
+nime1.night.y14        -INF             .              .          -236.5200      
+nime1.night.y15        -INF             .              .          -236.5200      
+nime2.day  .y10        -INF             .              .          -157.6800      
+nime2.day  .y11        -INF             .              .          -157.6800      
+nime2.day  .y12        -INF             .              .          -157.6800      
+nime2.day  .y13        -INF             .              .          -157.6800      
+nime2.day  .y14        -INF             .              .          -157.6800      
+nime2.day  .y15        -INF             .              .          -157.6800      
+nime2.night.y10        -INF             .              .          -150.1714      
+nime2.night.y11        -INF             .              .          -150.1714      
+nime2.night.y12        -INF             .              .          -150.1714      
+nime2.night.y13        -INF             .              .          -150.1714      
+nime2.night.y14        -INF             .              .          -150.1714      
+nime2.night.y15        -INF             .              .          -150.1714      
+
+---- EQU CHP_MinElec  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .           120.7624        +INF             .          
+nime1.day  .y11          .           121.2624        +INF             .          
+nime1.day  .y12          .           121.7674        +INF             .          
+nime1.day  .y13          .           122.2775        +INF             .          
+nime1.day  .y14          .           122.7926        +INF             .          
+nime1.day  .y15          .           123.3129        +INF             .          
+nime1.night.y10          .            70.7624        +INF             .          
+nime1.night.y11          .            70.7624        +INF             .          
+nime1.night.y12          .            70.7624        +INF             .          
+nime1.night.y13          .            70.7624        +INF             .          
+nime1.night.y14          .            70.7624        +INF             .          
+nime1.night.y15          .            70.7624        +INF             .          
+nime2.day  .y10          .           130.2029        +INF             .          
+nime2.day  .y11          .           130.2029        +INF             .          
+nime2.day  .y12          .           130.2029        +INF             .          
+nime2.day  .y13          .           130.2029        +INF             .          
+nime2.day  .y14          .           130.2029        +INF             .          
+nime2.day  .y15          .           130.2029        +INF             .          
+nime2.night.y10          .            91.6950        +INF             .          
+nime2.night.y11          .            92.8950        +INF             .          
+nime2.night.y12          .            94.1070        +INF             .          
+nime2.night.y13          .            95.3311        +INF             .          
+nime2.night.y14          .            96.5675        +INF             .          
+nime2.night.y15          .            97.8162        +INF             .          
+
+---- EQU CHP_MaxElec  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        -INF           -9.4404          .              .          
+nime1.day  .y11        -INF           -8.9404          .              .          
+nime1.day  .y12        -INF           -8.4354          .              .          
+nime1.day  .y13        -INF           -7.9254          .              .          
+nime1.day  .y14        -INF           -7.4102          .              .          
+nime1.day  .y15        -INF           -6.8899          .              .          
+nime1.night.y10        -INF          -59.4404          .              .          
+nime1.night.y11        -INF          -59.4404          .              .          
+nime1.night.y12        -INF          -59.4404          .              .          
+nime1.night.y13        -INF          -59.4404          .              .          
+nime1.night.y14        -INF          -59.4404          .              .          
+nime1.night.y15        -INF          -59.4404          .              .          
+nime2.day  .y10        -INF             .              .            -7.5086      
+nime2.day  .y11        -INF             .              .            -7.5086      
+nime2.day  .y12        -INF             .              .            -7.5086      
+nime2.day  .y13        -INF             .              .           -38.1975      
+nime2.day  .y14        -INF             .              .           -83.4286      
+nime2.day  .y15        -INF             .              .          -135.8636      
+nime2.night.y10        -INF          -38.5078          .              .          
+nime2.night.y11        -INF          -37.3078          .              .          
+nime2.night.y12        -INF          -36.0958          .              .          
+nime2.night.y13        -INF          -34.8717          .              .          
+nime2.night.y14        -INF          -33.6354          .              .          
+nime2.night.y15        -INF          -32.3866          .              .          
+
+---- EQU CHP_UpperHeat  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        -INF         -173.7876          .              .          
+nime1.day  .y11        -INF         -174.2376          .              .          
+nime1.day  .y12        -INF         -174.6921          .              .          
+nime1.day  .y13        -INF         -175.1512          .              .          
+nime1.day  .y14        -INF         -175.6148          .              .          
+nime1.day  .y15        -INF         -176.0831          .              .          
+nime1.night.y10        -INF         -128.7876          .              .          
+nime1.night.y11        -INF         -128.7876          .              .          
+nime1.night.y12        -INF         -128.7876          .              .          
+nime1.night.y13        -INF         -128.7876          .              .          
+nime1.night.y14        -INF         -128.7876          .              .          
+nime1.night.y15        -INF         -128.7876          .              .          
+nime2.day  .y10        -INF           -6.0602          .              .          
+nime2.day  .y11        -INF           -4.0602          .              .          
+nime2.day  .y12        -INF           -2.0402          .              .          
+nime2.day  .y13        -INF             .              .           -23.6068      
+nime2.day  .y14        -INF             .              .           -58.4000      
+nime2.day  .y15        -INF             .              .           -98.7346      
+nime2.night.y10        -INF          -16.0000          .              .          
+nime2.night.y11        -INF          -16.1600          .              .          
+nime2.night.y12        -INF          -16.3216          .              .          
+nime2.night.y13        -INF          -16.4848          .              .          
+nime2.night.y14        -INF          -16.6497          .              .          
+nime2.night.y15        -INF          -16.8162          .              .          
+
+---- EQU CHP_LowerHeat  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .              .            +INF           28.1571      
+nime1.day  .y11          .              .            +INF           28.1571      
+nime1.day  .y12          .              .            +INF           28.1571      
+nime1.day  .y13          .              .            +INF           28.1571      
+nime1.day  .y14          .              .            +INF           28.1571      
+nime1.day  .y15          .              .            +INF           28.1571      
+nime1.night.y10          .              .            +INF           28.1571      
+nime1.night.y11          .              .            +INF           28.1571      
+nime1.night.y12          .              .            +INF           28.1571      
+nime1.night.y13          .              .            +INF           28.1571      
+nime1.night.y14          .              .            +INF           28.1571      
+nime1.night.y15          .              .            +INF           28.1571      
+nime2.day  .y10          .           176.2238        +INF             .          
+nime2.day  .y11          .           178.2238        +INF             .          
+nime2.day  .y12          .           180.2438        +INF             .          
+nime2.day  .y13          .           182.2840        +INF             .          
+nime2.day  .y14          .           182.2840        +INF             .          
+nime2.day  .y15          .           182.2840        +INF             .          
+nime2.night.y10          .           131.6270        +INF             .          
+nime2.night.y11          .           132.5470        +INF             .          
+nime2.night.y12          .           133.4762        +INF             .          
+nime2.night.y13          .           134.4147        +INF             .          
+nime2.night.y14          .           135.3625        +INF             .          
+nime2.night.y15          .           136.3199        +INF             .          
+
+---- EQU Boiler_limit  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        -INF           -4.1418          .              .          
+nime1.day  .y11        -INF           -4.1418          .              .          
+nime1.day  .y12        -INF           -4.1418          .              .          
+nime1.day  .y13        -INF           -4.1418          .              .          
+nime1.day  .y14        -INF           -4.1418          .              .          
+nime1.day  .y15        -INF           -4.1418          .              .          
+nime1.night.y10        -INF           -4.1418          .              .          
+nime1.night.y11        -INF           -4.1418          .              .          
+nime1.night.y12        -INF           -4.1418          .              .          
+nime1.night.y13        -INF           -4.1418          .              .          
+nime1.night.y14        -INF           -4.1418          .              .          
+nime1.night.y15        -INF           -4.1418          .              .          
+nime2.day  .y10        -INF           -4.1418          .              .          
+nime2.day  .y11        -INF           -4.1418          .              .          
+nime2.day  .y12        -INF           -4.1418          .              .          
+nime2.day  .y13        -INF           -4.1418          .              .          
+nime2.day  .y14        -INF           -2.0812          .              .          
+nime2.day  .y15        -INF             .              .           -40.3346      
+nime2.night.y10        -INF           -4.1418          .              .          
+nime2.night.y11        -INF           -4.1418          .              .          
+nime2.night.y12        -INF           -4.1418          .              .          
+nime2.night.y13        -INF           -4.1418          .              .          
+nime2.night.y14        -INF           -4.1418          .              .          
+nime2.night.y15        -INF           -4.1418          .              .          
+
+---- EQU ElecWH_limit  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10        -INF             .              .              .          
+nime1.day  .y11        -INF             .              .              .          
+nime1.day  .y12        -INF             .              .              .          
+nime1.day  .y13        -INF             .              .              .          
+nime1.day  .y14        -INF             .              .              .          
+nime1.day  .y15        -INF             .              .              .          
+nime1.night.y10        -INF             .              .              .          
+nime1.night.y11        -INF             .              .              .          
+nime1.night.y12        -INF             .              .              .          
+nime1.night.y13        -INF             .              .              .          
+nime1.night.y14        -INF             .              .              .          
+nime1.night.y15        -INF             .              .              .          
+nime2.day  .y10        -INF             .              .              .          
+nime2.day  .y11        -INF             .              .              .          
+nime2.day  .y12        -INF             .              .              .          
+nime2.day  .y13        -INF             .              .              .          
+nime2.day  .y14        -INF             .              .              .          
+nime2.day  .y15        -INF             .              .              .          
+nime2.night.y10        -INF             .              .              .          
+nime2.night.y11        -INF             .              .              .          
+nime2.night.y12        -INF             .              .              .          
+nime2.night.y13        -INF             .              .              .          
+nime2.night.y14        -INF             .              .              .          
+nime2.night.y15        -INF             .              .              .          
+
+---- EQU Gas_balance  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .              .              .            78.8400      
+nime1.day  .y11          .              .              .            78.8400      
+nime1.day  .y12          .              .              .            78.8400      
+nime1.day  .y13          .              .              .            78.8400      
+nime1.day  .y14          .              .              .            78.8400      
+nime1.day  .y15          .              .              .            78.8400      
+nime1.night.y10          .              .              .            78.8400      
+nime1.night.y11          .              .              .            78.8400      
+nime1.night.y12          .              .              .            78.8400      
+nime1.night.y13          .              .              .            78.8400      
+nime1.night.y14          .              .              .            78.8400      
+nime1.night.y15          .              .              .            78.8400      
+nime2.day  .y10          .              .              .            52.5600      
+nime2.day  .y11          .              .              .            52.5600      
+nime2.day  .y12          .              .              .            52.5600      
+nime2.day  .y13          .              .              .            52.5600      
+nime2.day  .y14          .              .              .            52.5600      
+nime2.day  .y15          .              .              .            52.5600      
+nime2.night.y10          .              .              .            52.5600      
+nime2.night.y11          .              .              .            52.5600      
+nime2.night.y12          .              .              .            52.5600      
+nime2.night.y13          .              .              .            52.5600      
+nime2.night.y14          .              .              .            52.5600      
+nime2.night.y15          .              .              .            52.5600      
+
+                           LOWER          LEVEL          UPPER         MARGINAL
+
+---- EQU M               5000.0000      5000.0000      5000.0000         1.0000      
+
+---- VAR Cap  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+PV                       .           100.0000       100.0000      -357.5652      
+CHP                   100.0000       198.1348       700.0000          .          
+Boiler                   .             4.3598       300.0000          .          
+ElecWaterHeater          .              .          3000.0000        20.1082      
+
+---- VAR PVgen  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .            24.7000        +INF             .          
+nime1.day  .y11          .            24.7000        +INF             .          
+nime1.day  .y12          .            24.7000        +INF             .          
+nime1.day  .y13          .            24.7000        +INF             .          
+nime1.day  .y14          .            24.7000        +INF             .          
+nime1.day  .y15          .            24.7000        +INF             .          
+nime1.night.y10          .              .            +INF             .          
+nime1.night.y11          .              .            +INF             .          
+nime1.night.y12          .              .            +INF             .          
+nime1.night.y13          .              .            +INF             .          
+nime1.night.y14          .              .            +INF             .          
+nime1.night.y15          .              .            +INF             .          
+nime2.day  .y10          .            11.4000        +INF             .          
+nime2.day  .y11          .            11.4000        +INF             .          
+nime2.day  .y12          .            11.4000        +INF             .          
+nime2.day  .y13          .            11.4000        +INF             .          
+nime2.day  .y14          .            11.4000        +INF             .          
+nime2.day  .y15          .            11.4000        +INF             .          
+nime2.night.y10          .              .            +INF             .          
+nime2.night.y11          .              .            +INF             .          
+nime2.night.y12          .              .            +INF             .          
+nime2.night.y13          .              .            +INF             .          
+nime2.night.y14          .              .            +INF             .          
+nime2.night.y15          .              .            +INF             .          
+
+---- VAR CHPelec  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .           149.0674        +INF             .          
+nime1.day  .y11          .           149.5674        +INF             .          
+nime1.day  .y12          .           150.0724        +INF             .          
+nime1.day  .y13          .           150.5825        +INF             .          
+nime1.day  .y14          .           151.0976        +INF             .          
+nime1.day  .y15          .           151.6179        +INF             .          
+nime1.night.y10          .            99.0674        +INF             .          
+nime1.night.y11          .            99.0674        +INF             .          
+nime1.night.y12          .            99.0674        +INF             .          
+nime1.night.y13          .            99.0674        +INF             .          
+nime1.night.y14          .            99.0674        +INF             .          
+nime1.night.y15          .            99.0674        +INF             .          
+nime2.day  .y10          .           158.5078        +INF             .          
+nime2.day  .y11          .           158.5078        +INF             .          
+nime2.day  .y12          .           158.5078        +INF             .          
+nime2.day  .y13          .           158.5078        +INF             .          
+nime2.day  .y14          .           158.5078        +INF             .          
+nime2.day  .y15          .           158.5078        +INF             .          
+nime2.night.y10          .           120.0000        +INF             .          
+nime2.night.y11          .           121.2000        +INF             .          
+nime2.night.y12          .           122.4120        +INF             .          
+nime2.night.y13          .           123.6361        +INF             .          
+nime2.night.y14          .           124.8725        +INF             .          
+nime2.night.y15          .           126.1212        +INF             .          
+
+---- VAR CHPheat  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .            20.0000        +INF             .          
+nime1.day  .y11          .            20.2000        +INF             .          
+nime1.day  .y12          .            20.4020        +INF             .          
+nime1.day  .y13          .            20.6060        +INF             .          
+nime1.day  .y14          .            20.8121        +INF             .          
+nime1.day  .y15          .            21.0202        +INF             .          
+nime1.night.y10          .              .            +INF             .          
+nime1.night.y11          .              .            +INF             .          
+nime1.night.y12          .              .            +INF             .          
+nime1.night.y13          .              .            +INF             .          
+nime1.night.y14          .              .            +INF             .          
+nime1.night.y15          .              .            +INF             .          
+nime2.day  .y10          .           200.0000        +INF             .          
+nime2.day  .y11          .           202.0000        +INF             .          
+nime2.day  .y12          .           204.0200        +INF             .          
+nime2.day  .y13          .           206.0602        +INF             .          
+nime2.day  .y14          .           206.0602        +INF             .          
+nime2.day  .y15          .           206.0602        +INF             .          
+nime2.night.y10          .           140.0000        +INF             .          
+nime2.night.y11          .           141.4000        +INF             .          
+nime2.night.y12          .           142.8140        +INF             .          
+nime2.night.y13          .           144.2421        +INF             .          
+nime2.night.y14          .           145.6846        +INF             .          
+nime2.night.y15          .           147.1414        +INF             .          
+
+---- VAR BoilerHeat  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .              .            +INF          115.7571      
+nime1.day  .y11          .              .            +INF          115.7571      
+nime1.day  .y12          .              .            +INF          115.7571      
+nime1.day  .y13          .              .            +INF          115.7571      
+nime1.day  .y14          .              .            +INF          115.7571      
+nime1.day  .y15          .              .            +INF          115.7571      
+nime1.night.y10          .              .            +INF          115.7571      
+nime1.night.y11          .              .            +INF          115.7571      
+nime1.night.y12          .              .            +INF          115.7571      
+nime1.night.y13          .              .            +INF          115.7571      
+nime1.night.y14          .              .            +INF          115.7571      
+nime1.night.y15          .              .            +INF          115.7571      
+nime2.day  .y10          .              .            +INF           58.4000      
+nime2.day  .y11          .              .            +INF           58.4000      
+nime2.day  .y12          .              .            +INF           58.4000      
+nime2.day  .y13          .              .            +INF           34.7932      
+nime2.day  .y14          .             2.0606        +INF             .          
+nime2.day  .y15          .             4.1418        +INF             .          
+nime2.night.y10          .              .            +INF           58.4000      
+nime2.night.y11          .              .            +INF           58.4000      
+nime2.night.y12          .              .            +INF           58.4000      
+nime2.night.y13          .              .            +INF           58.4000      
+nime2.night.y14          .              .            +INF           58.4000      
+nime2.night.y15          .              .            +INF           58.4000      
+
+---- VAR ElecWH_Heat  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .              .            +INF          271.9922      
+nime1.day  .y11          .              .            +INF          271.9922      
+nime1.day  .y12          .              .            +INF          271.9922      
+nime1.day  .y13          .              .            +INF          271.9922      
+nime1.day  .y14          .              .            +INF          271.9922      
+nime1.day  .y15          .              .            +INF          271.9922      
+nime1.night.y10          .              .            +INF          271.9922      
+nime1.night.y11          .              .            +INF          271.9922      
+nime1.night.y12          .              .            +INF          271.9922      
+nime1.night.y13          .              .            +INF          271.9922      
+nime1.night.y14          .              .            +INF          271.9922      
+nime1.night.y15          .              .            +INF          271.9922      
+nime2.day  .y10          .              .            +INF          162.5567      
+nime2.day  .y11          .              .            +INF          162.5567      
+nime2.day  .y12          .              .            +INF          162.5567      
+nime2.day  .y13          .              .            +INF          138.9499      
+nime2.day  .y14          .              .            +INF          104.1567      
+nime2.day  .y15          .              .            +INF           63.8221      
+nime2.night.y10          .              .            +INF          154.8159      
+nime2.night.y11          .              .            +INF          154.8159      
+nime2.night.y12          .              .            +INF          154.8159      
+nime2.night.y13          .              .            +INF          154.8159      
+nime2.night.y14          .              .            +INF          154.8159      
+nime2.night.y15          .              .            +INF          154.8159      
+
+---- VAR GridElecBuy  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .            59.5659        +INF             .          
+nime1.day  .y11          .            61.3993        +INF             .          
+nime1.day  .y12          .            63.2509        +INF             .          
+nime1.day  .y13          .            65.1211        +INF             .          
+nime1.day  .y14          .            67.0100        +INF             .          
+nime1.day  .y15          .            68.9178        +INF             .          
+nime1.night.y10          .            40.9326        +INF             .          
+nime1.night.y11          .            42.3326        +INF             .          
+nime1.night.y12          .            43.7466        +INF             .          
+nime1.night.y13          .            45.1747        +INF             .          
+nime1.night.y14          .            46.6172        +INF             .          
+nime1.night.y15          .            48.0740        +INF             .          
+nime2.day  .y10          .            10.0922        +INF             .          
+nime2.day  .y11          .            11.8922        +INF             .          
+nime2.day  .y12          .            13.7102        +INF             .          
+nime2.day  .y13          .            15.5463        +INF             .          
+nime2.day  .y14          .            17.4009        +INF             .          
+nime2.day  .y15          .            19.2740        +INF             .          
+nime2.night.y10          .              .            +INF            7.5086      
+nime2.night.y11          .              .            +INF            7.5086      
+nime2.night.y12          .              .            +INF            7.5086      
+nime2.night.y13          .              .            +INF            7.5086      
+nime2.night.y14          .              .            +INF            7.5086      
+nime2.night.y15          .              .            +INF            7.5086      
+
+---- VAR GridGasBuy  
+
+                       LOWER          LEVEL          UPPER         MARGINAL
+
+nime1.day  .y10          .           425.9069        +INF             .          
+nime1.day  .y11          .           427.3354        +INF             .          
+nime1.day  .y12          .           428.7783        +INF             .          
+nime1.day  .y13          .           430.2356        +INF             .          
+nime1.day  .y14          .           431.7074        +INF             .          
+nime1.day  .y15          .           433.1940        +INF             .          
+nime1.night.y10          .           283.0497        +INF             .          
+nime1.night.y11          .           283.0497        +INF             .          
+nime1.night.y12          .           283.0497        +INF             .          
+nime1.night.y13          .           283.0497        +INF             .          
+nime1.night.y14          .           283.0497        +INF             .          
+nime1.night.y15          .           283.0497        +INF             .          
+nime2.day  .y10          .           452.8796        +INF             .          
+nime2.day  .y11          .           452.8796        +INF             .          
+nime2.day  .y12          .           452.8796        +INF             .          
+nime2.day  .y13          .           452.8796        +INF             .          
+nime2.day  .y14          .           455.1691        +INF             .          
+nime2.day  .y15          .           457.4816        +INF             .          
+nime2.night.y10          .           342.8571        +INF             .          
+nime2.night.y11          .           346.2857        +INF             .          
+nime2.night.y12          .           349.7486        +INF             .          
+nime2.night.y13          .           353.2461        +INF             .          
+nime2.night.y14          .           356.7785        +INF             .          
+nime2.night.y15          .           360.3463        +INF             .          
+
+                           LOWER          LEVEL          UPPER         MARGINAL
+
+---- VAR z                 -INF       832251.5403        +INF             .          
+
+
+**** REPORT SUMMARY :        0     NONOPT
+                             0 INFEASIBLE
+                             0  UNBOUNDED
+GAMS 25.1.3  r4e34d435fbd Released Oct 30, 2018 WEX-WEI x86 64bit/MS Windows - 05/26/26 17:13:46 Page 6
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+E x e c u t i o n
+
+
+----    159 VARIABLE z.L                   =   832251.540  
+
+----    159 VARIABLE Cap.L  
+
+PV     100.000,    CHP    198.135,    Boiler   4.360
+
+
+
+EXECUTION TIME       =        0.016 SECONDS      3 MB  25.1.3 r4e34d435fbd WEX-WEI
+
+
+USER: CS 635 Spring 2014                             G140121/0001AO-GEN
+      Prof. Michael Ferris, University of Wisconsin-Madison      DC2937
+      License for teaching and research at degree granting institutions
+
+
+**** FILE SUMMARY
+
+Input      C:\Users\mehdi\Desktop\modelasli.gms
+Output     C:\Users\mehdi\Desktop\modelasli.lst
